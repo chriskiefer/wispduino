@@ -1,3 +1,28 @@
+This is a port of https://github.com/adam-mcdaniel/wisp, optimised to run on arduino / compatible boards.
+
+It's been tested on a Raspberry Pi Pico. On the Pico, it uses 7% program storage and 2% dynamic RAM.
+
+These builtin functions have been added, on top of the ones already in wisp lisp.
+
+* pm (pinMode)
+* dr (digitalRead)
+* dw (digitalWrite)
+* delay
+* delaymicros 
+* millis
+* micros
+* sin
+* cos
+* tan
+* abs
+* min
+* max
+* pow
+* sqrt
+* map
+
+
+
 <div align="center">
   <h1>👻<b>wisp</b>✨</h1>
   <p>

@@ -4,40 +4,20 @@
 /// LANGUAGE OPTIONS ///////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-// Comment this define out to drop support for libm functions
-#define HAS_LIBM
-#ifdef HAS_LIBM
-#include <cmath>
-#else
+
 #define NO_LIBM_SUPPORT "no libm support"
-#endif
 
 
 // Comment this define out to drop support for standard library functions.
 // This allows the program to run without a runtime.
 #define USE_STD
 #ifdef USE_STD
-#include <cstdlib>
-#include <iostream>
-#include <fstream>
-#include <ctime>
+// #include <cstdlib>
+// #include <iostream>
+// #include <fstream>
+// #include <ctime>
 
-std::string read_file_contents(std::string filename) {
-    std::ifstream f;
-    f.open(filename.c_str());
-    if (!f)
-        throw std::runtime_error("could not open file");
 
-    f.seekg(0, std::ios::end);
-    std::string contents;
-    contents.reserve(f.tellg());
-    f.seekg(0, std::ios::beg);
-    contents.assign(std::istreambuf_iterator<char>(f),
-                std::istreambuf_iterator<char>());
-    f.close();
-
-    return contents;
-}
 
 #else
 #define NO_STD "no standard library support"
@@ -49,30 +29,29 @@ std::string read_file_contents(std::string filename) {
 ////////////////////////////////////////////////////////////////////////////////
 
 #include <map>
-#include <string>
 #include <vector>
 #include <sstream>
-#include <exception>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// ERROR MESSAGES /////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-#define TOO_FEW_ARGS "too few arguments to function"
-#define TOO_MANY_ARGS "too many arguments to function"
-#define INVALID_ARGUMENT "invalid argument"
-#define MISMATCHED_TYPES "mismatched types"
-#define CALL_NON_FUNCTION "called non-function"
-#define UNKNOWN_ERROR "unknown exception"
-#define INVALID_LAMBDA "invalid lambda"
-#define INVALID_BIN_OP "invalid binary operation"
-#define INVALID_ORDER "cannot order expression"
-#define BAD_CAST "cannot cast"
-#define ATOM_NOT_DEFINED "atom not defined"
-#define EVAL_EMPTY_LIST "evaluated empty list"
-#define INTERNAL_ERROR "interal virtual machine error"
-#define INDEX_OUT_OF_RANGE "index out of range"
-#define MALFORMED_PROGRAM "malformed program"
+#define RO_STRING(x,y) const char PROGMEM x[] = y;
+RO_STRING(TOO_FEW_ARGS,"too few arguments to function")
+RO_STRING(TOO_MANY_ARGS,"too many arguments to function")
+RO_STRING(INVALID_ARGUMENT,"invalid argument")
+RO_STRING(MISMATCHED_TYPES,"mismatched types")
+RO_STRING(CALL_NON_FUNCTION,"called non-function")
+RO_STRING(UNKNOWN_ERROR,"unknown exception")
+RO_STRING(INVALID_LAMBDA,"invalid lambda")
+RO_STRING(INVALID_BIN_OP,"invalid binary operation")
+RO_STRING(INVALID_ORDER,"cannot order expression")
+RO_STRING(BAD_CAST,"cannot cast")
+RO_STRING(ATOM_NOT_DEFINED,"atom not defined")
+RO_STRING(EVAL_EMPTY_LIST,"evaluated empty list")
+RO_STRING(INTERNAL_ERROR,"interal virtual machine error")
+RO_STRING(INDEX_OUT_OF_RANGE,"index out of range")
+RO_STRING(MALFORMED_PROGRAM,"malformed program")
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TYPE NAMES /////////////////////////////////////////////////////////////////
@@ -91,26 +70,34 @@ std::string read_file_contents(std::string filename) {
 /// HELPER FUNCTIONS ///////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-// Convert an object to a string using a stringstream conveniently
-template <typename T>
-std::string to_string(T t) {
-    // Create a stringstream
-    std::ostringstream ss;
-    // Convert the object to a string
-    ss << std::dec << t;
-    // Return the string
-    return ss.str();
-}
-
-// Replace a substring with a replacement string in a source string
-void replace_substring(std::string &src, std::string substr, std::string replacement) {
-    size_t i=0;
-    for (i=src.find(substr, i); i!=std::string::npos; i=src.find(substr, i)) {
-        src.replace(i, substr.size(), replacement);
-        i += replacement.size();
+String unescape(String str) {
+  String result = "";
+  for (int i = 0; i < str.length(); i++) {
+    if (str[i] == '\\' && i + 1 < str.length()) {
+      i++;
+      switch (str[i]) {
+        case 'n':
+          result += "\n";
+          break;
+        case '"':
+          result += "\"";
+          break;
+        case 'r':
+          result += "\r";
+          break;
+        case 't':
+          result += "\t";
+          break;
+        default:
+          result += str[i];
+          break;
+      }
+    } else {
+      result += str[i];
     }
+  }
+  return result;
 }
-
 // Is this character a valid lisp symbol character
 bool is_symbol(char ch) {
     return (isalpha(ch) || ispunct(ch)) && ch != '(' && ch != ')' && ch != '"' && ch != '\'';
@@ -122,7 +109,9 @@ bool is_symbol(char ch) {
 
 // Forward declaration for Environment class definition
 class Value;
-
+class Environment;
+Value parse(String &s, int &ptr);
+Value run(String code, Environment &env);
 
 // An instance of a function's scope.
 class Environment {
@@ -134,11 +123,11 @@ public:
     // have this atom in scope?
     // This is only used to determine which atoms to capture when
     // creating a lambda function.
-    bool has(std::string name) const;
+    bool has(String name) const;
     // Get the value associated with this name in this scope
-    Value get(std::string name) const;
+    Value get(String name) const;
     // Set the value associated with this name in this scope
-    void set(std::string name, Value value);
+    void set(String name, Value value);
 
     void combine(Environment const &other);
 
@@ -151,27 +140,8 @@ public:
 private:
 
     // The definitions in the scope.
-    std::map<std::string, Value> defs;
+    std::map<String, Value> defs;
     Environment *parent_scope;
-};
-
-
-// An exception thrown by the lisp
-class Error {
-public:
-    // Create an error with the value that caused the error,
-    // the scope where the error was found, and the message.
-    Error(Value v, Environment const &env, const char *msg);
-    // Copy constructor is needed to prevent double frees
-    Error(Error const &other);
-    ~Error();
-
-    // Get the printable error description.
-    std::string description();
-private:
-    Value *cause;
-    Environment env;
-    const char *msg;
 };
 
 // The type for a builtin function, which takes a list of values,
@@ -206,7 +176,7 @@ public:
     }
 
     // Construct an atom
-    static Value atom(std::string s) {
+    static Value atom(String s) {
         Value result;
         result.type = ATOM;
 
@@ -216,7 +186,7 @@ public:
     }
 
     // Construct a string
-    static Value string(std::string s) {
+    static Value string(String s) {
         Value result;
         result.type = STRING;
 
@@ -233,7 +203,7 @@ public:
         list.push_back(ret);
 
         // Lambdas capture only variables that they know they will use.
-        std::vector<std::string> used_atoms = ret.get_used_atoms();
+        std::vector<String> used_atoms = ret.get_used_atoms();
         for (size_t i=0; i<used_atoms.size(); i++) {
             // If the environment has a symbol that this lambda uses, capture it.
             if (env.has(used_atoms[i]))
@@ -242,7 +212,7 @@ public:
     }
 
     // Construct a builtin function
-    Value(std::string name, Builtin b) : type(BUILTIN) {
+    Value(String name, Builtin b) : type(BUILTIN) {
         // Store the name of the builtin function in the str member
         // to save memory, and use the builtin function slot in the union
         // to store the function pointer.
@@ -255,8 +225,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////////
 
     // Get all of the atoms used in a given Value
-    std::vector<std::string> get_used_atoms() {
-        std::vector<std::string> result, tmp;
+    std::vector<String> get_used_atoms() {
+        std::vector<String> result, tmp;
         switch (type) {
         case QUOTE:
             // The data for a quote is stored in the
@@ -316,18 +286,20 @@ public:
     }
 
     // Get this item's string value
-    std::string as_string() const {
+    String as_string() const {
         // If this item is not a string, throw a cast error.
         if (type != STRING)
-            throw Error(*this, Environment(), BAD_CAST);
+//            throw Error(*this, Environment(), BAD_CAST);
+          Serial.println(BAD_CAST);
         return str;
     }
 
     // Get this item's atom value
-    std::string as_atom() const {
+    String as_atom() const {
         // If this item is not an atom, throw a cast error.
         if (type != ATOM)
-            throw Error(*this, Environment(), BAD_CAST);
+          Serial.println(BAD_CAST);
+            // throw Error(*this, Environment(), BAD_CAST);
         return str;
     }
 
@@ -335,7 +307,8 @@ public:
     std::vector<Value> as_list() const {
         // If this item is not a list, throw a cast error.
         if (type != LIST)
-            throw Error(*this, Environment(), BAD_CAST);
+          Serial.println(BAD_CAST);
+            // throw Error(*this, Environment(), BAD_CAST);
         return list;
     }
 
@@ -344,7 +317,9 @@ public:
         // If this item is not a list, you cannot push to it.
         // Throw an error.
         if (type != LIST)
-            throw Error(*this, Environment(), MISMATCHED_TYPES);
+          Serial.println(MISMATCHED_TYPES);
+
+            // throw Error(*this, Environment(), MISMATCHED_TYPES);
         
         list.push_back(val);
     }
@@ -354,7 +329,8 @@ public:
         // If this item is not a list, you cannot pop from it.
         // Throw an error.
         if (type != LIST)
-            throw Error(*this, Environment(), MISMATCHED_TYPES);
+            // throw Error(*this, Environment(), MISMATCHED_TYPES);
+          Serial.println(MISMATCHED_TYPES);
         
         // Remember the last item in the list
         Value result = list[list.size()-1];
@@ -375,7 +351,9 @@ public:
         case FLOAT: return Value(int(stack_data.f));
         // Only ints and floats can be cast to an int
         default:
-            throw Error(*this, Environment(), BAD_CAST);
+          Serial.println(BAD_CAST);
+          return Value();
+            // throw Error(*this, Environment(), BAD_CAST);
         }
     }
 
@@ -386,7 +364,9 @@ public:
         case INT: return Value(float(stack_data.i));
         // Only ints and floats can be cast to a float
         default:
-            throw Error(*this, Environment(), BAD_CAST);
+          Serial.println(BAD_CAST);
+            // throw Error(*this, Environment(), BAD_CAST);
+            return Value();
         }
     }
 
@@ -467,7 +447,8 @@ public:
     bool operator<(Value other) const {
         // Other type must be a float or an int
         if (other.type != FLOAT && other.type != INT)
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
 
         switch (type) {
         case FLOAT:
@@ -481,7 +462,9 @@ public:
             else return stack_data.i < other.stack_data.i;
         default:
             // Only allow comparisons between integers and floats
-            throw Error(*this, Environment(), INVALID_ORDER);
+          Serial.println(INVALID_ORDER);
+          return false;
+            // throw Error(*this, Environment(), INVALID_ORDER);
         }
     }
     
@@ -499,7 +482,8 @@ public:
         // Other type must be a float or an int
         if ((is_number() || other.is_number()) &&
             !(is_number() && other.is_number()))
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
 
         switch (type) {
         case FLOAT:
@@ -518,7 +502,9 @@ public:
             if (other.type == STRING)
                 return Value::string(str + other.str);
             // We throw an error if we try to concat anything of non-string type
-            else throw Error(*this, Environment(), INVALID_BIN_OP);
+            else 
+              Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         case LIST:
             // If the other value is also a list, do the concat
             if (other.type == LIST) {
@@ -529,11 +515,15 @@ public:
                     result.push(other.list[i]);
                 return result;
             
-            } else throw Error(*this, Environment(), INVALID_BIN_OP);
+            } else 
+            Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         case UNIT:
             return *this;
         default:
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+           Serial.println(INVALID_BIN_OP);
+           return Value();
+           // throw Error(*this, Environment(), INVALID_BIN_OP);
         }
     }
 
@@ -546,7 +536,8 @@ public:
 
         // Other type must be a float or an int
         if (other.type != FLOAT && other.type != INT)
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
 
         switch (type) {
         case FLOAT:
@@ -565,7 +556,9 @@ public:
             return *this;
         default:
             // This operation was done on an unsupported type
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+          return Value();
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         }
     }
 
@@ -578,7 +571,8 @@ public:
 
         // Other type must be a float or an int
         if (other.type != FLOAT && other.type != INT)
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         
         switch (type) {
         case FLOAT:
@@ -595,7 +589,9 @@ public:
             return *this;
         default:
             // This operation was done on an unsupported type
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+          return Value();
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         }
     }
 
@@ -608,7 +604,8 @@ public:
 
         // Other type must be a float or an int
         if (other.type != FLOAT && other.type != INT)
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+//             throw Error(*this, Environment(), INVALID_BIN_OP);
 
         switch (type) {
         case FLOAT:
@@ -625,7 +622,9 @@ public:
             return *this;
         default:
             // This operation was done on an unsupported type
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+           Serial.println(INVALID_BIN_OP);
+          return Value();
+          //  throw Error(*this, Environment(), INVALID_BIN_OP);
         }
     }
 
@@ -638,7 +637,8 @@ public:
 
         // Other type must be a float or an int
         if (other.type != FLOAT && other.type != INT)
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+          Serial.println(INVALID_BIN_OP);
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         
         switch (type) {
         // If we support libm, we can find the remainder of floating point values.
@@ -654,7 +654,8 @@ public:
         case INT:
             // If we do not support libm, we have to throw errors for floating point values.
             if (other.type != INT)
-                throw Error(other, Environment(), NO_LIBM_SUPPORT);
+               Serial.println(NO_LIBM_SUPPORT);
+                // throw Error(other, Environment(), NO_LIBM_SUPPORT);
             return Value(stack_data.i % other.stack_data.i);
         #endif
 
@@ -663,12 +664,14 @@ public:
             return *this;
         default:
             // This operation was done on an unsupported type
-            throw Error(*this, Environment(), INVALID_BIN_OP);
+            Serial.println(INVALID_BIN_OP);
+          return Value();
+            // throw Error(*this, Environment(), INVALID_BIN_OP);
         }
     }
 
     // Get the name of the type of this value
-    std::string get_type_name() {
+    String get_type_name() {
         switch (type) {
         case QUOTE: return QUOTE_TYPE;
         case ATOM: return ATOM_TYPE;
@@ -688,21 +691,23 @@ public:
             // We don't know the name of this type.
             // This isn't the users fault, this is just unhandled.
             // This should never be reached.
-            throw Error(*this, Environment(), INTERNAL_ERROR);
+            Serial.println(INTERNAL_ERROR);
+            return "";
+            // throw Error(*this, Environment(), INTERNAL_ERROR);
         }
     }
 
-    std::string display() const {
-        std::string result;
+    String display() const {
+        String result;
         switch (type) {
         case QUOTE:
             return "'" + list[0].debug();
         case ATOM:
             return str;
         case INT:
-            return to_string(stack_data.i);
+            return String(stack_data.i);
         case FLOAT:
-            return to_string(stack_data.f);
+            return String(stack_data.f);
         case STRING:
             return str;
         case LAMBDA:
@@ -718,32 +723,35 @@ public:
             }
             return "(" + result + ")";
         case BUILTIN:
-            return "<" + str + " at " + to_string(long(stack_data.b)) + ">";
+            return "<" + str + " at " + String(long(stack_data.b)) + ">";
         case UNIT:
             return "@";
         default:
             // We don't know how to display whatever type this is.
             // This isn't the users fault, this is just unhandled.
             // This should never be reached.
-            throw Error(*this, Environment(), INTERNAL_ERROR);
+            Serial.println(INTERNAL_ERROR);
+            // throw Error(*this, Environment(), INTERNAL_ERROR);
+            return "";
         }
     }
 
-    std::string debug() const {
-        std::string result;
+    String debug() const {
+        String result;
+        // string result;
         switch (type) {
         case QUOTE:
             return "'" + list[0].debug();
         case ATOM:
             return str;
         case INT:
-            return to_string(stack_data.i);
+            return String(stack_data.i);
         case FLOAT:
-            return to_string(stack_data.f);
+            return String(stack_data.f);
         case STRING:
             for (size_t i=0; i<str.length(); i++) {
                 if (str[i] == '"') result += "\\\"";
-                else result.push_back(str[i]);
+                else result += str[i];
             }
             return "\"" + result + "\"";
         case LAMBDA:
@@ -759,14 +767,16 @@ public:
             }
             return "(" + result + ")";
         case BUILTIN:
-            return "<" + str + " at " + to_string(long(stack_data.b)) + ">";
+            return "<" + str + " at " + String(long(stack_data.b)) + ">";
         case UNIT:
             return "@";
         default:
             // We don't know how to debug whatever type this is.
             // This isn't the users fault, this is just unhandled.
             // This should never be reached.
-            throw Error(*this, Environment(), INTERNAL_ERROR);
+            Serial.println(INTERNAL_ERROR);
+            // throw Error(*this, Environment(), INTERNAL_ERROR);
+            return "";
         }
     }
 
@@ -793,32 +803,34 @@ private:
         Builtin b;
     } stack_data;
 
-    std::string str;
+    String str;
     std::vector<Value> list;
     Environment lambda_scope;
 };
 
-Error::Error(Value v, Environment const &env, const char *msg) : env(env), msg(msg) {
-    cause = new Value;
-    *cause = v;
-}
+// end of class Value
 
-Error::Error(Error const &other) : env(other.env), msg(other.msg) {
-    cause = new Value(*other.cause);
-}
+// Error::Error(Value v, Environment const &env, const char *msg) : env(env), msg(msg) {
+//     cause = new Value;
+//     *cause = v;
+// }
 
-Error::~Error() {
-    delete cause;
-}
+// Error::Error(Error const &other) : env(other.env), msg(other.msg) {
+//     cause = new Value(*other.cause);
+// }
 
-std::string Error::description() {
-    return "error: the expression `" + cause->debug() + "` failed in scope " + to_string(env) + " with message \"" + msg + "\"";
-}
+// Error::~Error() {
+//     delete cause;
+// }
+
+// std::string Error::description() {
+//     return "error: the expression `" + cause->debug() + "` failed in scope " + to_string(env) + " with message \"" + msg + "\"";
+// }
 
 void Environment::combine(Environment const &other) {
     // Normally, I would use the `insert` method of the `map` class,
     // but it doesn't overwrite previously declared values for keys.
-    std::map<std::string, Value>::const_iterator itr = other.defs.begin();
+    std::map<String, Value>::const_iterator itr = other.defs.begin();
     for (; itr!=other.defs.end(); itr++) {
         // Iterate through the keys and assign each value.
         defs[itr->first] = itr->second;
@@ -826,7 +838,7 @@ void Environment::combine(Environment const &other) {
 }
 
 std::ostream &operator<<(std::ostream &os, Environment const &e) {
-    std::map<std::string, Value>::const_iterator itr = e.defs.begin();
+    std::map<String, Value>::const_iterator itr = e.defs.begin();
     os << "{ ";
     for (; itr != e.defs.end(); itr++) {
         os << '\'' << itr->first << "' : " << itr->second.debug() << ", ";
@@ -834,7 +846,7 @@ std::ostream &operator<<(std::ostream &os, Environment const &e) {
     return os << "}";
 }
 
-void Environment::set(std::string name, Value value) {
+void Environment::set(String name, Value value) {
     defs[name] = value;
 }
 
@@ -847,9 +859,11 @@ Value Value::apply(std::vector<Value> args, Environment &env) {
         // Get the list of parameter atoms
         params = list[0].list;
         if (params.size() != args.size())
-            throw Error(Value(args), env, args.size() > params.size()?
-                TOO_MANY_ARGS : TOO_FEW_ARGS
-            );
+          Serial.println(args.size() > params.size() ? TOO_MANY_ARGS : TOO_FEW_ARGS);
+
+            // throw Error(Value(args), env, args.size() > params.size()?
+            //     TOO_MANY_ARGS : TOO_FEW_ARGS
+            // );
 
         // Get the captured scope from the lambda
         e = lambda_scope;
@@ -860,7 +874,8 @@ Value Value::apply(std::vector<Value> args, Environment &env) {
         // insert the arguments into the scope.
         for (size_t i=0; i<params.size(); i++) {
             if (params[i].type != ATOM) 
-                throw Error(*this, env, INVALID_LAMBDA);
+              Serial.println(INVALID_LAMBDA);
+                // throw Error(*this, env, INVALID_LAMBDA);
             // Set the parameter name into the scope.
             e.set(params[i].str, args[i]);
         }
@@ -875,7 +890,9 @@ Value Value::apply(std::vector<Value> args, Environment &env) {
         return (stack_data.b)(args, env);
     default:
         // We can only call lambdas and builtins
-        throw Error(*this, env, CALL_NON_FUNCTION);
+      Serial.println(CALL_NON_FUNCTION);
+        // throw Error(*this, env, CALL_NON_FUNCTION);
+        return Value(args);
     }
 }
 
@@ -891,7 +908,8 @@ Value Value::eval(Environment &env) {
         return env.get(str);
     case LIST:
         if (list.size() < 1)
-            throw Error(*this, env, EVAL_EMPTY_LIST);
+          Serial.println(EVAL_EMPTY_LIST);
+            // throw Error(*this, env, EVAL_EMPTY_LIST);
 
         args = std::vector<Value>(list.begin() + 1, list.end());
         
@@ -914,13 +932,18 @@ Value Value::eval(Environment &env) {
     }
 }
 
-void skip_whitespace(std::string &s, int &ptr) {
+void skip_whitespace(String &s, int &ptr) {
     while (isspace(s[ptr])) { ptr++; }
 }
 
+// Value v = Value();
+// Value ftest() {
+//   return Value();
+// }
+
 // Parse a single value and increment the pointer
 // to the beginning of the next value to parse.
-Value parse(std::string &s, int &ptr) {
+Value parse(String &s, int &ptr) {
     skip_whitespace(s, ptr);
 
     // Skip comments
@@ -933,7 +956,7 @@ Value parse(std::string &s, int &ptr) {
         skip_whitespace(s, ptr);
 
         // If we're at the end of the string, return an empty value
-        if (s.substr(ptr, s.length()-ptr-1) == "")
+        if (s.substring(ptr, ptr + s.length()-ptr-1) == "")
             return Value();
     }
 
@@ -965,10 +988,10 @@ Value parse(std::string &s, int &ptr) {
         
         int save_ptr = ptr;
         while (isdigit(s[ptr]) || s[ptr] == '.') ptr++;
-        std::string n = s.substr(save_ptr, ptr);
+        String n = s.substring(save_ptr, save_ptr + ptr);
         skip_whitespace(s, ptr);
         
-        if (n.find('.') != std::string::npos)
+        if (n.indexOf('.') != -1)
             return Value((negate? -1 : 1) * atof(n.c_str()));
         else return Value((negate? -1 : 1) * atoi(n.c_str()));
 
@@ -977,28 +1000,30 @@ Value parse(std::string &s, int &ptr) {
         int n = 1;
         while (s[ptr + n] != '\"') {
             if (ptr + n >= int(s.length()))
-                throw std::runtime_error(MALFORMED_PROGRAM);
+              Serial.println(MALFORMED_PROGRAM);
+                // throw std::runtime_error(MALFORMED_PROGRAM);
                 
             if (s[ptr + n] == '\\') n++;
             n++;
         }
 
-        std::string x = s.substr(ptr+1, n-1);
+        String x = s.substring(ptr+1, ptr + 1 + n-1);
         ptr += n+1;
         skip_whitespace(s, ptr);
 
         // Iterate over the characters in the string, and
         // replace escaped characters with their intended values.
-        for (size_t i=0; i<x.size(); i++) {
-            if (x[i] == '\\' && x[i+1] == '\\')
-                x.replace(i, 2, "\\");
-            else if (x[i] == '\\' && x[i+1] == '"')
-                x.replace(i, 2, "\"");
-            else if (x[i] == '\\' && x[i+1] == 'n')
-                x.replace(i, 2, "\n");
-            else if (x[i] == '\\' && x[i+1] == 't')
-                x.replace(i, 2, "\t");
-        }
+        x = unescape(x);        
+        // for (size_t i=0; i<x.length(); i++) {
+        //     if (x[i] == '\\' && x[i+1] == '\\')
+        //         x.replace(i, 2, "\\");
+        //     else if (x[i] == '\\' && x[i+1] == '"')
+        //         x.replace(i, 2, "\"");
+        //     else if (x[i] == '\\' && x[i+1] == 'n')
+        //         x.replace(i, 2, "\n");
+        //     else if (x[i] == '\\' && x[i+1] == 't')
+        //         x.replace(i, 2, "\t");
+        // }
 
         return Value::string(x);
     } else if (s[ptr] == '@') {
@@ -1013,17 +1038,19 @@ Value parse(std::string &s, int &ptr) {
             n++;
         }
 
-        std::string x = s.substr(ptr, n);
+        String x = s.substring(ptr, ptr+n);
         ptr += n;
         skip_whitespace(s, ptr);
         return Value::atom(x);
     } else {
-        throw std::runtime_error(MALFORMED_PROGRAM);
+      Serial.println(MALFORMED_PROGRAM);
+      return Value();
+        // throw std::runtime_error(MALFORMED_PROGRAM);
     }
 }
 
 // Parse an entire program and get its list of expressions.
-std::vector<Value> parse(std::string s) {
+std::vector<Value> parse(String s) {
     int i=0, last_i=-1;
     std::vector<Value> result;
     // While the parser is making progress (while the pointer is moving right)
@@ -1036,14 +1063,15 @@ std::vector<Value> parse(std::string s) {
 
     // If the whole string wasn't parsed, the program must be bad.
     if (i < int(s.length()))
-        throw std::runtime_error(MALFORMED_PROGRAM);
+      Serial.println(MALFORMED_PROGRAM);
+        // throw std::runtime_error(MALFORMED_PROGRAM);
 
     // Return the list of values parsed.
     return result;
 }
 
 // Execute code in an environment
-Value run(std::string code, Environment &env) {
+Value run(String code, Environment &env) {
     // Parse the code
     std::vector<Value> parsed = parse(code);
     // Iterate over the expressions and evaluate them
@@ -1054,6 +1082,7 @@ Value run(std::string code, Environment &env) {
     // Return the result of the last expression.
     return parsed[parsed.size()-1].eval(env);
 }
+
 
 // This namespace contains all the definitions of builtin functions
 namespace builtin {
@@ -1071,10 +1100,14 @@ namespace builtin {
     // Create a lambda function (SPECIAL FORM)
     Value lambda(std::vector<Value> args, Environment &env) {
         if (args.size() < 2)
-            throw Error(Value("lambda", lambda), env, TOO_FEW_ARGS);
+          Serial.println(TOO_FEW_ARGS);
+
+            // throw Error(Value("lambda", lambda), env, TOO_FEW_ARGS);
 
         if (args[0].get_type_name() != LIST_TYPE)
-            throw Error(Value("lambda", lambda), env, INVALID_LAMBDA);
+          Serial.println(INVALID_LAMBDA);
+
+            // throw Error(Value("lambda", lambda), env, INVALID_LAMBDA);
 
         return Value(args[0].as_list(), args[1], env);
     }
@@ -1082,7 +1115,9 @@ namespace builtin {
     // if-else (SPECIAL FORM)
     Value if_then_else(std::vector<Value> args, Environment &env) {
         if (args.size() != 3)
-            throw Error(Value("if", if_then_else), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+
+            // throw Error(Value("if", if_then_else), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
         if (args[0].eval(env).as_bool())
             return args[1].eval(env);
         else return args[2].eval(env);
@@ -1091,7 +1126,8 @@ namespace builtin {
     // Define a variable with a value (SPECIAL FORM)
     Value define(std::vector<Value> args, Environment &env) {
         if (args.size() != 2)
-            throw Error(Value("define", define), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("define", define), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
             
         Value result = args[1].eval(env);
         env.set(args[0].display(), result);
@@ -1101,10 +1137,12 @@ namespace builtin {
     // Define a function with parameters and a result expression (SPECIAL FORM)
     Value defun(std::vector<Value> args, Environment &env) {
         if (args.size() != 3)
-            throw Error(Value("defun", defun), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("defun", defun), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         if (args[1].get_type_name() != LIST_TYPE)
-            throw Error(Value("defun", defun), env, INVALID_LAMBDA);
+            Serial.println(INVALID_LAMBDA);
+            // throw Error(Value("defun", defun), env, INVALID_LAMBDA);
 
         Value f = Value(args[1].as_list(), args[2], env);
         env.set(args[0].display(), f);
@@ -1179,16 +1217,20 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() < 1)
-            throw Error(Value("print", print), env, TOO_FEW_ARGS);
+            Serial.println(TOO_FEW_ARGS);
+            // throw Error(Value("print", print), env, TOO_FEW_ARGS);
 
         Value acc;
         for (size_t i=0; i<args.size(); i++) {
             acc = args[i];
-            std::cout << acc.display();
+            Serial.print(acc.display().c_str());
+            // std::cout << acc.display();
             if (i < args.size() - 1)
-                std::cout << " ";
+                // std::cout << " ";
+                Serial.print(" ");
         }
-        std::cout << std::endl;
+        // std::cout << std::endl;
+        Serial.println();
         return acc;
     }
 
@@ -1198,71 +1240,72 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() > 1)
-            throw Error(Value("input", input), env, TOO_MANY_ARGS);
+            Serial.println(TOO_MANY_ARGS);
+            // throw Error(Value("input", input), env, TOO_MANY_ARGS);
 
         if (!args.empty())
-            std::cout << args[0];
+            Serial.println(args[0].as_string());
 
-        std::string s;
-        std::getline(std::cin, s);
+        String s = Serial.readString();
         return Value::string(s);
     }
 
     // Get a random number between two numbers inclusively
-    Value random(std::vector<Value> args, Environment &env) {
+    Value gen_random(std::vector<Value> args, Environment &env) {
         // Is not a special form, so we can evaluate our args.
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("random", random), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("random", random), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         int low = args[0].as_int(), high = args[1].as_int();
-        return Value(rand()%(high-low+1) + low);
+        return Value((int)random(low,high));
     }
 
-    // Get the contents of a file
-    Value read_file(std::vector<Value> args, Environment &env) {
-        // Is not a special form, so we can evaluate our args.
-        eval_args(args, env);
+    // // Get the contents of a file
+    // Value read_file(std::vector<Value> args, Environment &env) {
+    //     // Is not a special form, so we can evaluate our args.
+    //     eval_args(args, env);
 
-        if (args.size() != 1)
-            throw Error(Value("read-file", read_file), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+    //     if (args.size() != 1)
+    //         throw Error(Value("read-file", read_file), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
-        // return Value::string(content);
-        return Value::string(read_file_contents(args[0].as_string()));
-    }
+    //     // return Value::string(content);
+    //     return Value::string(read_file_contents(args[0].as_string()));
+    // }
 
-    // Write a string to a file
-    Value write_file(std::vector<Value> args, Environment &env) {
-        // Is not a special form, so we can evaluate our args.
-        eval_args(args, env);
+    // // Write a string to a file
+    // Value write_file(std::vector<Value> args, Environment &env) {
+    //     // Is not a special form, so we can evaluate our args.
+    //     eval_args(args, env);
 
-        if (args.size() != 2)
-            throw Error(Value("write-file", write_file), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+    //     if (args.size() != 2)
+    //         throw Error(Value("write-file", write_file), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
-        std::ofstream f;
-        // The first argument is the file name
-        f.open(args[0].as_string().c_str());
-        // The second argument is the contents of the file to write
-        Value result = Value((f << args[1].as_string())? 1 : 0);
-        f.close();
-        return result;
-    }
+    //     std::ofstream f;
+    //     // The first argument is the file name
+    //     f.open(args[0].as_string().c_str());
+    //     // The second argument is the contents of the file to write
+    //     Value result = Value((f << args[1].as_string())? 1 : 0);
+    //     f.close();
+    //     return result;
+    // }
 
     // Read a file and execute its code
-    Value include(std::vector<Value> args, Environment &env) {
-        // Import is technically not a special form, it's more of a macro.
-        // We can evaluate our arguments.
-        eval_args(args, env);
+    // Value include(std::vector<Value> args, Environment &env) {
+    //     // Import is technically not a special form, it's more of a macro.
+    //     // We can evaluate our arguments.
+    //     eval_args(args, env);
 
-        if (args.size() != 1)
-            throw Error(Value("include", include), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+    //     if (args.size() != 1)
+    //         throw Error(Value("include", include), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
-        Environment e;
-        Value result = run(read_file_contents(args[0].as_string()), e);
-        env.combine(e);
-        return result;
-    }
+    //     Environment e;
+    //     Value result = run(read_file_contents(args[0].as_string()), e);
+    //     env.combine(e);
+    //     return result;
+    // }
     #endif
 
     // Evaluate a value as code
@@ -1270,8 +1313,11 @@ namespace builtin {
         // Is not a special form, so we can evaluate our args.
         eval_args(args, env);
 
-        if (args.size() != 1)
-            throw Error(Value("eval", eval), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+        if (args.size() != 1){
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            return Value();
+        }
+            // throw Error(Value("eval", eval), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         else return args[0].eval(env);
     }
 
@@ -1289,7 +1335,8 @@ namespace builtin {
         eval_args(args, env);
         
         if (args.size() < 2)
-            throw Error(Value("+", sum), env, TOO_FEW_ARGS);
+            Serial.println(TOO_FEW_ARGS);
+            // throw Error(Value("+", sum), env, TOO_FEW_ARGS);
         
         Value acc = args[0];
         for (size_t i=1; i<args.size(); i++)
@@ -1303,7 +1350,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("-", subtract), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("-", subtract), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0] - args[1];
     }
 
@@ -1313,7 +1361,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() < 2)
-            throw Error(Value("*", product), env, TOO_FEW_ARGS);
+            Serial.println(TOO_FEW_ARGS);
+            // throw Error(Value("*", product), env, TOO_FEW_ARGS);
 
         Value acc = args[0];
         for (size_t i=1; i<args.size(); i++)
@@ -1327,7 +1376,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("/", divide), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("/", divide), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0] / args[1];
     }
 
@@ -1337,7 +1387,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("%", remainder), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("%", remainder), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0] % args[1];
     }
 
@@ -1347,7 +1398,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("=", eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("=", eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] == args[1]));
     }
 
@@ -1357,7 +1409,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("!=", neq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("!=", neq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] != args[1]));
     }
 
@@ -1367,7 +1420,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value(">", greater), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value(">", greater), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] > args[1]));
     }
 
@@ -1377,7 +1431,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("<", less), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("<", less), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] < args[1]));
     }
 
@@ -1387,7 +1442,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value(">=", greater_eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value(">=", greater_eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] >= args[1]));
     }
 
@@ -1397,7 +1453,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("<=", less_eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("<=", less_eq), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return Value(int(args[0] <= args[1]));
     }
 
@@ -1407,7 +1464,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("type", get_type_name), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("type", get_type_name), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         return Value::string(args[0].get_type_name());
     }
@@ -1418,7 +1476,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value(FLOAT_TYPE, cast_to_float), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value(FLOAT_TYPE, cast_to_float), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0].cast_to_float();
     }
 
@@ -1428,7 +1487,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value(INT_TYPE, cast_to_int), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value(INT_TYPE, cast_to_int), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0].cast_to_int();
     }
 
@@ -1438,12 +1498,14 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("index", index), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+          Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+      // throw Error(Value("index", index), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         std::vector<Value> list = args[0].as_list();
         int i = args[1].as_int();
         if (list.empty() || i >= (int)list.size())
-            throw Error(list, env, INDEX_OUT_OF_RANGE);
+            Serial.println(INDEX_OUT_OF_RANGE);
+            // throw Error(list, env, INDEX_OUT_OF_RANGE);
 
         return list[i];
     }
@@ -1454,12 +1516,14 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 3)
-            throw Error(Value("insert", insert), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+             Serial.println(args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+           // throw Error(Value("insert", insert), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         std::vector<Value> list = args[0].as_list();
         int i = args[1].as_int();
         if (i > (int)list.size())
-            throw Error(list, env, INDEX_OUT_OF_RANGE);
+            Serial.println(INDEX_OUT_OF_RANGE);
+            // throw Error(list, env, INDEX_OUT_OF_RANGE);
 
         list.insert(list.begin() + args[1].as_int(), args[2]);
         return Value(list);
@@ -1471,12 +1535,14 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 2)
-            throw Error(Value("remove", remove), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
+        // throw Error(Value("remove", remove), env, args.size() > 2? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         std::vector<Value> list = args[0].as_list();
         int i = args[1].as_int();
         if (list.empty() || i >= (int)list.size())
-            throw Error(list, env, INDEX_OUT_OF_RANGE);
+            Serial.println(INDEX_OUT_OF_RANGE);
+          //  throw Error(list, env, INDEX_OUT_OF_RANGE);
 
         list.erase(list.begin() + i);
         return Value(list);
@@ -1488,9 +1554,10 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("len", len), env, args.size() > 1?
-                TOO_MANY_ARGS : TOO_FEW_ARGS
-            );
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("len", len), env, args.size() > 1?
+                // TOO_MANY_ARGS : TOO_FEW_ARGS
+            // );
         
         return Value(int(args[0].as_list().size()));
     }
@@ -1501,7 +1568,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() == 0)
-            throw Error(Value("push", push), env, TOO_FEW_ARGS);
+            Serial.println(TOO_FEW_ARGS);
+            // throw Error(Value("push", push), env, TOO_FEW_ARGS);
         for (size_t i=1; i<args.size(); i++)
             args[0].push(args[i]);
         return args[0];
@@ -1512,7 +1580,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("pop", pop), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("pop", pop), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         return args[0].pop();
     }
 
@@ -1521,10 +1590,12 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("head", head), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("head", head), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         std::vector<Value> list = args[0].as_list();
         if (list.empty())
-            throw Error(Value("head", head), env, INDEX_OUT_OF_RANGE);
+            Serial.println(INDEX_OUT_OF_RANGE);
+            // throw Error(Value("head", head), env, INDEX_OUT_OF_RANGE);
 
         return list[0];
     }
@@ -1534,7 +1605,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("tail", tail), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("tail", tail), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         std::vector<Value> result, list = args[0].as_list();
 
@@ -1549,9 +1621,11 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("parse", parse), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("parse", parse), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
         if (args[0].get_type_name() != STRING_TYPE)
-            throw Error(args[0], env, INVALID_ARGUMENT);
+            Serial.println(INVALID_ARGUMENT);
+            // throw Error(args[0], env, INVALID_ARGUMENT);
         std::vector<Value> parsed = ::parse(args[0].as_string());
 
         // if (parsed.size() == 1)
@@ -1565,10 +1639,11 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 3)
-            throw Error(Value("replace", replace), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("replace", replace), env, args.size() > 3? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
-        std::string src = args[0].as_string();
-        replace_substring(src, args[1].as_string(), args[2].as_string());
+        String src = args[0].as_string();
+        src.replace(args[1].as_string(), args[2].as_string());
         return Value::string(src);
     }
 
@@ -1577,7 +1652,8 @@ namespace builtin {
         eval_args(args, env);
 
         if (args.size() != 1)
-            throw Error(Value("display", display), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("display", display), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         return Value::string(args[0].display());
     }
@@ -1586,8 +1662,9 @@ namespace builtin {
         // Is not a special form, so we can evaluate our args.
         eval_args(args, env);
 
-        if (args.size() != 1)
-            throw Error(Value("debug", debug), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+        if (args.size() != 1)        
+            Serial.println(args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
+            // throw Error(Value("debug", debug), env, args.size() > 1? TOO_MANY_ARGS : TOO_FEW_ARGS);
 
         return Value::string(args[0].debug());
     }
@@ -1641,9 +1718,11 @@ namespace builtin {
         std::vector<Value> result;
         Value low = args[0], high = args[1];
         if (low.get_type_name() != INT_TYPE && low.get_type_name() != FLOAT_TYPE)
-            throw Error(low, env, MISMATCHED_TYPES);
+            Serial.println(MISMATCHED_TYPES);
+            // throw Error(low, env, MISMATCHED_TYPES);
         if (high.get_type_name() != INT_TYPE && high.get_type_name() != FLOAT_TYPE)
-            throw Error(high, env, MISMATCHED_TYPES);
+            Serial.println(MISMATCHED_TYPES);
+            // throw Error(high, env, MISMATCHED_TYPES);
 
         if (low >= high) return Value(result);
 
@@ -1654,47 +1733,107 @@ namespace builtin {
         return Value(result);
     }
 }
+//end of builtin namespace
 
-void repl(Environment &env) {
-#ifdef USE_STD
-    std::string code;
-    std::string input;
-    Value tmp;
-    std::vector<Value> parsed;
-    while (true) {
-        std::cout << ">>> ";
-        std::getline(std::cin, input);
-        if (input == "!quit" || input == "!q")
-            break;
-        else if (input == "!env" || input == "!e")
-            std::cout << env << std::endl;
-        else if (input == "!export" || input == "!x") {
-            std::cout << "File to export to: ";
-            std::getline(std::cin, input);
+  #define BUILTINFUNC(__name__, __body__, __numArgs__) Value __name__(std::vector<Value> args, Environment &env) { \
+          eval_args(args, env); \
+          Value ret = Value(); \
+          if (args.size() != __numArgs__) \
+              Serial.println(args.size() > __numArgs__? TOO_MANY_ARGS : TOO_FEW_ARGS); \
+          else { \
+            __body__ \
+          } \
+          return ret; \
+  } 
 
-            std::ofstream f;
-            f.open(input.c_str(), std::ofstream::out);
-            f << code;
-            f.close();
-        } else if (input != "") {
-            try {
-                tmp = run(input, env);
-                std::cout << " => " << tmp.debug() << std::endl;
-                code += input + "\n";
-            } catch (Error &e) {
-                std::cerr << e.description() << std::endl;
-            } catch (std::runtime_error &e) {
-                std::cerr << e.what() << std::endl;
-            }
-        }
-    }
-#endif
+//extra arduino api functions
+namespace builtin {
+    BUILTINFUNC(ard_pinMode, 
+          int pinNumber = args[0].as_int();     
+          int onOff = args[1].as_int();   
+          pinMode(pinNumber, onOff);
+    , 2)
+
+    BUILTINFUNC(ard_digitalWrite, 
+          int pinNumber = args[0].as_int();     
+          int onOff = args[1].as_int();   
+          digitalWrite(pinNumber, onOff);
+          ret = args[0];
+    , 2)
+
+    BUILTINFUNC(ard_digitalRead, 
+          int pinNumber = args[0].as_int();     
+          int val = digitalRead(pinNumber);
+          ret = Value(val);
+    , 1)
+
+    BUILTINFUNC(ard_delay, 
+          int delaytime = args[0].as_int();     
+          delay(delaytime);
+          ret = args[0];
+    , 1)
+
+    BUILTINFUNC(ard_delaymicros, 
+          int delaytime = args[0].as_int();     
+          delayMicroseconds(delaytime);
+          ret = args[0];
+    , 1)
+
+    BUILTINFUNC(ard_millis, 
+          int  m = millis();     
+          ret = Value(m);
+    , 0)
+
+    BUILTINFUNC(ard_micros, 
+          int  m = micros();     
+          ret = Value(m);
+    , 0)
+
+    BUILTINFUNC(ard_sin, 
+          float  m = sin(args[0].as_float());     
+          ret = Value(m);
+    , 1)
+    BUILTINFUNC(ard_cos, 
+          float  m = cos(args[0].as_float());     
+          ret = Value(m);
+    , 1)
+    BUILTINFUNC(ard_tan, 
+          float  m = tan(args[0].as_float());     
+          ret = Value(m);
+    , 1)
+
+    BUILTINFUNC(ard_abs, 
+          float  m = abs(args[0].as_float());     
+          ret = Value(m);
+    , 1)
+    BUILTINFUNC(ard_min, 
+          float  m = min(args[0].as_float(), args[1].as_float());     
+          ret = Value(m);
+    , 2)
+    BUILTINFUNC(ard_max, 
+          float  m = max(args[0].as_float(), args[1].as_float());     
+          ret = Value(m);
+    , 2)
+    BUILTINFUNC(ard_pow, 
+          float  m = pow(args[0].as_float(), args[1].as_float());     
+          ret = Value(m);
+    , 2)
+    BUILTINFUNC(ard_sqrt, 
+          float  m = sqrt(args[0].as_float());     
+          ret = Value(m);
+    , 1)
+    BUILTINFUNC(ard_map, 
+          float  m = map(args[0].as_float(), args[1].as_float(), args[2].as_float(), args[3].as_float(), args[4].as_float());     
+          ret = Value(m);
+    , 5)
+
 }
 
+
 // Does this environment, or its parent environment, have a variable?
-bool Environment::has(std::string name) const {
+bool Environment::has(String name) const {
     // Find the value in the map
-    std::map<std::string, Value>::const_iterator itr = defs.find(name);
+    std::map<String, Value>::const_iterator itr = defs.find(name);
     if (itr != defs.end())
         // If it was found
         return true;
@@ -1706,7 +1845,28 @@ bool Environment::has(std::string name) const {
 }
 
 // Get the value associated with this name in this scope
-Value Environment::get(std::string name) const {
+Value Environment::get(String name) const {
+    //arduino
+    if (name == "pm") return Value("pm",  builtin::ard_pinMode);
+    if (name == "dw") return Value("dw",  builtin::ard_digitalWrite);
+    if (name == "dr") return Value("dr",  builtin::ard_digitalRead);
+    if (name == "delay") return Value("delay",  builtin::ard_delay);
+    if (name == "delaymicros") return Value("delaymicros",  builtin::ard_delaymicros);
+    if (name == "millis") return Value("millis",  builtin::ard_millis);
+    if (name == "micros") return Value("micros",  builtin::ard_micros);
+
+    //arduino math
+    if (name == "sin") return Value("sin",  builtin::ard_sin);
+    if (name == "cos") return Value("cos",  builtin::ard_cos);
+    if (name == "tan") return Value("tan",  builtin::ard_tan);
+    if (name == "abs") return Value("abs",  builtin::ard_abs);
+    if (name == "min") return Value("min",  builtin::ard_min);
+    if (name == "max") return Value("max",  builtin::ard_max);
+    if (name == "pow") return Value("pow",  builtin::ard_pow);
+    if (name == "sqrt") return Value("sqrt",  builtin::ard_sqrt);
+    if (name == "map") return Value("map",  builtin::ard_map);
+
+
     // Meta operations
     if (name == "eval")  return Value("eval",  builtin::eval);
     if (name == "type")  return Value("type",  builtin::get_type_name);
@@ -1765,10 +1925,7 @@ Value Environment::get(std::string name) const {
     if (name == "quit")       return Value("quit",       builtin::exit);
     if (name == "print")      return Value("print",      builtin::print);
     if (name == "input")      return Value("input",      builtin::input);
-    if (name == "random")     return Value("random",     builtin::random);
-    if (name == "include")    return Value("include",    builtin::include);
-    if (name == "read-file")  return Value("read-file",  builtin::read_file);
-    if (name == "write-file") return Value("write-file", builtin::write_file);
+    if (name == "random")     return Value("random",     builtin::gen_random);
     #endif
 
     // String operations
@@ -1783,45 +1940,35 @@ Value Environment::get(std::string name) const {
     // Constants
     if (name == "endl") return Value::string("\n");
     
-    std::map<std::string, Value>::const_iterator itr = defs.find(name);
+    std::map<String, Value>::const_iterator itr = defs.find(name);
     if (itr != defs.end()) return itr->second;
     else if (parent_scope != NULL) {
         itr = parent_scope->defs.find(name);
         if (itr != parent_scope->defs.end()) return itr->second;
         else return parent_scope->get(name);
     }
-
-    throw Error(Value::atom(name), *this, ATOM_NOT_DEFINED);
+    Serial.println(ATOM_NOT_DEFINED);  
+    return Value();
 }
 
-int main(int argc, const char **argv) {
-    Environment env;
-    std::vector<Value> args;
-    for (int i=0; i<argc; i++)
-        args.push_back(Value::string(argv[i]));
-    env.set("cmd-args", Value(args));
 
-    #ifdef USE_STD
-    srand(time(NULL));
-    try {
-        if (argc == 1 || (argc == 2 && std::string(argv[1]) == "-i"))
-            repl(env);
-        else if (argc == 3 && std::string(argv[1]) == "-c")
-            run(argv[2], env);
-        else if (argc == 3 && std::string(argv[1]) == "-f")
-            run(read_file_contents(argv[2]), env);
-        else if (argc == 2)
-            run(read_file_contents(argv[1]), env);
-        else std::cerr << "invalid arguments" << std::endl;
-    } catch (Error &e) {
-        std::cerr << e.description() << std::endl;
-    } catch (std::runtime_error &e) {
-        std::cerr << e.what() << std::endl;
-    }
-    #else
-    if (argc == 3 && std::string(argv[1]) == "-c")
-        run(argv[2], env);
-    #endif
+Environment env;
 
-    return 0;
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  Serial.setTimeout(0);
+  randomSeed(analogRead (0));
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  if (Serial.available()) {
+    String cmd = Serial.readString();
+    Serial.println(cmd);
+    Value res; 
+    res = run(cmd, env);  
+    Serial.println(res.debug());
+    Serial.println("complete");
+  }
 }
